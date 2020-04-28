@@ -25,6 +25,17 @@ public protocol BBMetalCameraPhotoDelegate: AnyObject {
     func camera(_ camera: BBMetalCamera, didFail error: Error)
 }
 
+/// Camera video delegate defines handling live video
+public protocol BBMetalCameraVideoDelegate: AnyObject {
+    /// Called when a new video frame arrived
+    ///
+    /// - Parameters:
+    ///   - camera: camera to use
+    ///   - texture: Metal texture of the video
+    ///   - sampleBuffer: Original CMSampleBuffer
+    func camera(_ camera: BBMetalCamera, didOutput texture: MTLTexture, sampleBuffer: CMSampleBuffer)
+}
+
 public protocol BBMetalCameraMetadataObjectDelegate: AnyObject {
     /// Called when camera did get metadata objects
     ///
@@ -170,6 +181,23 @@ public class BBMetalCamera: NSObject {
         }
     }
     private weak var _photoDelegate: BBMetalCameraPhotoDelegate?
+    
+    /// Camera video delegate handling taking live video.
+    /// To capture video, this property should not be nil.
+    public weak var videoDelegate: BBMetalCameraVideoDelegate? {
+        get {
+            lock.wait()
+            let p = _videoDelegate
+            lock.signal()
+            return p
+        }
+        set {
+            lock.wait()
+            _videoDelegate = newValue
+            lock.signal()
+        }
+    }
+    private weak var _videoDelegate: BBMetalCameraVideoDelegate?
     
     private var metadataOutput: AVCaptureMetadataOutput!
     private var metadataOutputQueue: DispatchQueue!
@@ -591,6 +619,10 @@ extension BBMetalCamera: AVCaptureVideoDataOutputSampleBufferDelegate, AVCapture
                                            cameraPosition: cameraPosition,
                                            cvMetalTexture: texture.cvMetalTexture)
         for consumer in consumers { consumer.newTextureAvailable(output, from: self) }
+        
+        if let delegate = videoDelegate {
+            delegate.camera(self, didOutput: output.metalTexture, sampleBuffer: sampleBuffer)
+        }
         
         // Benchmark
         if startTime != 0 {
